@@ -2,15 +2,12 @@ unit Partie;
 
 interface
 
-uses typeDonnees, affichageJeu, dictionnaire, crt, animation;
+uses typeDonnees, affichageJeu, dictionnaire, crt, animation, ScoreManager, SDL2, SDL2_ttf;
 
-procedure partieJeu(mode: TDifficulte);
+
+procedure partieJeu(mode: TDifficulte; renderer: PSDL_Renderer; font: PTTF_Font);
 function initMot(mode: TDifficulte): TMot;
 procedure modeDifficulte(var mode: TDifficulte);
-function entreeValide(key: Char; mot: TMot): Boolean;
-procedure updateTMot(key: Char; var mot: TMot);
-procedure updateTentatives(valide: Boolean; key: Char; pressedKeys: TPressed; var tentatives: Integer);
-function partieGagnee(mot: TMot): Boolean;
 
 implementation
 
@@ -56,175 +53,73 @@ procedure modeDifficulte(var mode: TDifficulte);
                 mode := difficile;
             end;
 
-            if input = 1 then
-                mode := facile
-            else if input = 2 then
-                mode := moyen
-            else if input = 3 then
-                mode := difficile
-            else
-                begin
-                    ClrScr;
-                    animate('❌ Saisie incorrecte...', 50, False);
-                    delay(750);
-                end;
         until (input >= 1) and (input <= 3);
     end;
 
 
-procedure partieJeu(mode: TDifficulte);
+procedure partieJeu(mode: TDifficulte; renderer: PSDL_Renderer; font: PTTF_Font);
     var mot: TMot;
+    var tentativeWord: string;
     var key: Char;
     var valide: Boolean;
     var tentatives, i: Integer;
-    var pressedKeys: TPressed;
-
+    var scoreManager: TScoreManager;
+    var running: boolean;
+    var event: SDL_event;
+    
     begin
         tentatives := 0;
         valide := False;
-        key := #0;
         mot := initMot(mode);
-
-        for i := 1 to 26 do
-            pressedKeys[i] := False;
-
-        ClrScr;
-
-        while True do
+        InitScoreManager(scoreManager, 7, mot.chaine);
+        tentativeWord := '';
+        running := True;
+        
+        while running and not partieGagnee(mot) and (tentative < 7) do
+        begin
+            while SDL_PollEvent(@event) = 1 do
             begin
-                ClrScr;
-                writeln('> Utiliser le clavier pour ajouter des lettres.');
-                writeln('> Appuyer sur ESC pour quitter.');
-                
-                GotoXY(1, 4);
-                afficherPendu(tentatives);
-                GotoXY(20, 8);
-                afficherMot(valide, mot);
-                GotoXY(40, 4);
-                write('Vies restantes: ', 6 - tentatives);
-                GotoXY(40, 6);
-                afficherPressedLettres(key, pressedKeys);
-
-                if partieGagnee(mot) then
+                case event.type_ of
+                    SDL_Quit: running := False;
+                    SDL_KEYDOWN:
                     begin
-                        delay(2000);
-                        ClrScr;
-                        animate('Partie gagnée 🏆', 50, True);
-                        writeln('');
-                        animate('Vous avez deviné ' + UpCase(mot.chaine), 50, False);
-                        delay(3000);
-                        break;
-                    end
-                else if tentatives = 6 then
-                    begin
-                        delay(2000);
-                        ClrScr;
-                        animate('Partie perdue 💀', 50, True);
-                        writeln('');
-                        animate('Le mot était ' + UpCase(mot.chaine), 50, False);
-                        delay(3000);
-                        break;
+                        if event.key.keysym.sym = SDLK_RETURN then
+                        begin
+                            if tentativeWord = mot.chaine then
+                            begin
+                                valide := True;
+                                break;
+                            end
+                            else
+                            begin
+                                tentatives := tentatives + 1;
+                                tentativeWord := '';
+                            end;
+                        end
+                        else if (event.key.keysym.sym >= SDLK_a) and (event.key.keysym.sym <= SDLK_z) then
+                        begin
+                            if Length(tentativeWord) < mot.longeurMot then
+                                tentativeWord := tentativeWord + Chr(event.key.keysym.sym);
+                            end;
+                        end;
                     end;
-
-                key := ReadKey;
-                
-                case key of
-                    #0:
-                        begin
-                            // Pour l'instant on va uniquement lire les lettres
-
-                            // ch := ReadKey;
-                            // case ch of
-                            // UP: if y > 1 then y := y - 1;
-                            // DOWN: if y < 25 then y := y + 1;
-                            // LEFT: if x > 1 then x := x - 1;
-                            // RIGHT: if x < 80 then x := x + 1;
-                            // end;
-                        end;
-                    ESC:
-                        begin
-                            ClrScr;
-                            animate('🚪 Exiting...', 50, False);
-                            for i := 1 to 2 do
-                                begin
-                                    delay(500);
-                                    ClrScr;
-                                    write('🚪 Exitin');
-                                    animate('g...', 100, False);
-                                end;
-                            delay(750);
-                            break;
-                        end;
-
-                    #97..#122:  // Charactères ASCII de a à z (minuscule)
-                        begin
-                            valide := entreeValide(key, mot);
-                            updateTMot(key, mot);
-                            updateTentatives(valide, key, pressedKeys, tentatives);
-                            GotoXY(1, 1);
-                        end;
-                    else continue;
-
                 end;
 
+                ClrScr;
+                writeln('Mot entrée : ', tentativeWord);
+                writeln('Tentatives restantes : ', 7 - tentatives);
+
+                SDL_Delay(500);
             end;
+
+            if partieGagnee(mot) then
+                animate('Partie gagnée 🏆', 50, True);
+            else
+                animate('Partie perdue 💀', 50, True);
+                
+            RenderFinalScore(renderer, font, scoreManager);
+            delay(4000);
+        end;
     end;
-
-
-procedure updateTMot(key: Char; var mot: TMot);
-    var i: Integer;
-
-    begin
-        for i := 1 to mot.longueurMot do
-            if key = mot.chaine[i] then
-                begin
-                    if mot.cache[i] = True then
-                        mot.cache[i] := False;
-                end
-    end;
-
-
-procedure updateTentatives(valide: Boolean; key: Char; pressedKeys: TPressed; var tentatives: Integer);
-    var i, index: Integer;
-
-    begin
-        index := ord(key) - ord('a') + 1;
-
-        if not(valide) then
-            if not(pressedKeys[index]) then
-                tentatives := tentatives + 1;
-    end;
-
-
-function partieGagnee(mot: TMot): Boolean;
-    var i: Integer;
-
-    begin
-        partieGagnee := True;
-
-        for i := 1 to mot.longueurMot do
-            if mot.cache[i] = True then
-                begin
-                    partieGagnee := False;
-                    break;
-                end;
-
-    end;
-
-
-function entreeValide(key: Char; mot: TMot): Boolean;
-    var i: Integer;
-
-    begin
-        entreeValide := False;
-
-        for i := 1 to mot.longueurMot do
-            if key = mot.chaine[i] then
-                begin
-                    mot.cache[i] := False;
-                    entreeValide := True;
-                end
-    end;
-
-
+    
 end.
